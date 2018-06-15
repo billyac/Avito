@@ -9,11 +9,12 @@ import pandas as pd
 import re
 import string
 from sklearn.preprocessing import LabelEncoder
-from nltk.corpus import stopwords
+# from nltk.corpus import stopwords
 
 
 # Global variables
-stopwords = {x: 1 for x in stopwords.words('russian')}
+# stopwords = {x: 1 for x in stopwords.words('russian')}
+stopwords = []
 non_alphanums = re.compile(u'[^A-Za-z0-9]+')
 non_alphanumpunct = re.compile(u'[^A-Za-z0-9\.?!,; \(\)\[\]\'\"\$]+')
 RE_PUNCTUATION = re.compile('|'.join([re.escape(x) for x in string.punctuation]))
