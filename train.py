@@ -13,6 +13,7 @@ import os
 import pickle
 import time
 from optparse import OptionParser
+from tensorflow.python.lib.io import file_io
 
 import numpy as np
 import pandas as pd
@@ -39,7 +40,7 @@ SUBMISSION_RECORD_FOLDER = RECORD_FOLDER + 'sub/'
 #   2. Order of training data should not be changed if you want to
 #      compare result between trainings, as cross validation depends
 #      on that.
-def prepare_data(feature_names, test=False):
+def prepare_data(feature_names, pickle_folder_path, test=False):
     DATA_LENTH = TEST_SIZE if test else TRAIN_SIZE
 
     features = []
@@ -47,10 +48,14 @@ def prepare_data(feature_names, test=False):
     for name in feature_names:
         # Assume all the feature pickles are generated. Any features not
         # generated will cause an error here.
-        pickle_path = PICKLE_FOLDER + name
+        # pickle_path = PICKLE_FOLDER + name
+        pickle_path = pickle_folder_path + name
         if test:
             pickle_path += '_test'
-        feature = pd.read_pickle(pickle_path)
+        # feature = pd.read_pickle(pickle_path)
+        with file_io.FileIO(pickle_path, mode='rb') as feature_input:
+            feature = pickle.load(feature_input)
+
         # Sanity check
         assert(feature.shape[0] == DATA_LENTH)
         if isinstance(feature, pd.DataFrame):
@@ -86,23 +91,26 @@ def get_model(model_name, model_params):
 # Note that record_cv will change config (remove tune params), but it shouldn't
 # matter in training and predicting.
 # TODO: figure out a better way to handle tuning parameters.
-def record_cv(config, val_errors, train_errors, timestamp=datetime.datetime.now().strftime("%m-%d_%H:%M:%S")):
+def record_cv(config, val_errors, train_errors, output_path, timestamp=datetime.datetime.now().strftime("%m-%d_%H:%M:%S")):
     # Remove tune_params from config, as it is not serializable, and we do
     # not need to record it.
-    config.pop('tune_params')
+    # config.pop('tune_params')
     record_dict = {
         'config': config,
         'train_errors': train_errors,
         'val_errors': val_errors,
         'sub_error': 0 # Need to fill manually after submission.
     }
-    if not os.path.exists(CV_RECORD_FOLDER):
-        os.makedirs(CV_RECORD_FOLDER)
-    with open(
-        '%s%s_%s' %(CV_RECORD_FOLDER, config['name'], timestamp),
-        'w'
-    ) as fp:
+    # if not os.path.exists(CV_RECORD_FOLDER):
+    #     os.makedirs(CV_RECORD_FOLDER)
+    # with open(
+    #     '%s%s_%s' %(CV_RECORD_FOLDER, config['name'], timestamp),
+    #     'w'
+    # ) as fp:
+    #     json.dump(record_dict, fp)
+    with file_io.FileIO(output_path + "/result.json", mode='w') as fp:
         json.dump(record_dict, fp)
+
 
 
 # Returns two array containing validation and train errors of each fold.
@@ -142,10 +150,10 @@ def cross_validate(config, X, y):
 
 # Separates the cross validation with the data preparation step. The main purpose is
 # we do not need to repeat data preparation when tuning a model.
-def train(config, record=True):
+def train(config, pickle_folder_path, output_path, record=True):
     # Prepare train data.
     feature_names = config['features']
-    X, y = prepare_data(feature_names, test=False)
+    X, y = prepare_data(feature_names, pickle_folder_path, test=False)
     # For debug use only
     # print(X.columns)
     # print(X.describe(include='all'))
@@ -159,7 +167,7 @@ def train(config, record=True):
     val_errors, train_errors = cross_validate(config, X, y)
     # Records the cross validation in a json file if needed.
     if record:
-        record_cv(config, val_errors, train_errors)
+        record_cv(config, val_errors, train_errors, output_path)
 
 
 # Predicts on test data and generates submission.
@@ -238,6 +246,12 @@ if __name__ == '__main__':
     # Skips cross validation and record when generate submission.
     parser.add_option(
         '-n', '--no_cv', action='store_false', dest='cv', default=True)
+    # Pickle file path on gcloud
+    parser.add_option(
+        '-t', '--train-files', action='store', type='string', dest='pickle_folder_path')
+    # Base job path on gcloud
+    parser.add_option(
+        '-j', '--job-dir', action='store', type='string', dest='output_path')
 
     options, _ = parser.parse_args()
     config = config_map[options.config]
@@ -248,7 +262,7 @@ if __name__ == '__main__':
         predict(config, options.cv)
     else:
         # Cross validation.
-        train(config)
+        train(config, options.pickle_folder_path, options.output_path)
 
     t_finish = time.time()
     print('Total running time: ', (t_finish - t_start) / 60)
